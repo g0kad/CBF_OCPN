@@ -1,0 +1,10 @@
+{
+  "name": "cbf_ocpn",
+  "version": "0.1.0",
+  "description": "Cross bearing fix tool for OpenCPN",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}

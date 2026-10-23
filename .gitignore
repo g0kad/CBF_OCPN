@@ -1,0 +1,6 @@
+node_modules/
+.vscode/
+
+# Local notes and reference material, not for the public repo
+CLAUDE.md
+reference/
