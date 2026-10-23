@@ -1,7 +1,7 @@
 // Run with: node --test
 var test = require("node:test");
 var assert = require("node:assert/strict");
-var CBF = require("../src/cbf.js");
+var CBF = require("./load-cbf.js");
 
 // Roughly Solent-scale geometry: boat mid-channel, three objects 2-4 nm away.
 var boat = { lat: 50.7700, lon: -1.3000 };
