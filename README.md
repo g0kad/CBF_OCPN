@@ -5,9 +5,9 @@ cross-bearing fixes and running fixes when GPS is unavailable.
 
 - Right-click a charted object and choose **CBF: bearing to object here** (or right-click a waypoint and
   choose **CBF: bearing to this waypoint**). Enter the magnetic bearing and the time it was taken. The
-  position can be typed or corrected in the dialogue.
+  exact clicked position is used; **Position...** lets you type one instead (e.g. from a list of lights).
 - Variation is filled in from OpenCPN's WMM plugin and can be overridden.
-- Each position line is drawn as it is entered. On the last bearing, **Add, last one: plot fix** trims the
+- Each position line is drawn as it is entered. Use **Add more** for each bearing and **Plot fix** on the last one. This trims the
   lines and drops a fix mark (circle round a dot) named with the time, and reports the cocked hat size.
 - If the bearing times differ by more than 2 minutes, it asks for course steered, speed and tide, and plots
   a **running fix**: earlier lines are advanced to the time of the last bearing and drawn dashed.

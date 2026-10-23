@@ -6,9 +6,10 @@
 //   2. For each, right-click the object on the chart and choose
 //      "CBF: bearing to object here" (or right-click an existing waypoint and
 //      choose "CBF: bearing to this waypoint"). Enter the magnetic bearing and
-//      the time it was taken. The position can be typed or corrected in the
-//      dialogue. The position line is drawn straight away.
-//   3. On the last bearing press "Add, last one: plot fix" (or choose
+//      the time it was taken. The exact clicked position is used; the
+//      Position... button lets you type one instead. The position line is
+//      drawn straight away.
+//   3. On the last bearing press "Plot fix" (or choose
 //      "CBF: plot fix" from the right-click menu). The lines are trimmed and a
 //      fix mark (circle round a dot) named with the time is dropped in the
 //      cocked hat.
@@ -34,8 +35,9 @@ var PROVISIONAL_LINE_NM = 4;     // length of a line before there is a fix
 var FIX_ICON = "Symbol-Circle";
 var RUNNING_FIX_MINUTES = 2;     // bearings further apart than this need a run
 
-var BTN_MORE = "Add, more to come";
-var BTN_LAST = "Add, last one: plot fix";
+var BTN_MORE = "Add more";      // keep button labels short: the plugin's buttons don't grow
+var BTN_LAST = "Plot fix";
+var BTN_POSITION = "Position...";
 
 var bearings = [];               // {name, object:{lat,lon}, bearing, minutes, routeGUID}
 var variation = null;            // degrees, east positive
@@ -96,12 +98,13 @@ function startBearing(pos, name) {
 
 // --- adding a bearing ------------------------------------------------------------------
 
+// The object's position is shown but not editable here, so it can't be
+// overwritten by accident; the exact clicked position is used. The
+// Position... button opens a separate dialogue to type one.
 function showBearingDialogue(message, previous) {
     var n = bearings.length + 1;
     var p = previous || {
         name: pending.name || ("Object " + n),
-        lat: CBF.formatLat(pending.pos.lat),
-        lon: CBF.formatLon(pending.pos.lon),
         bearing: "",
         time: bearings.length ? formatTime(bearings[bearings.length - 1].minutes) : formatTime(nowMinutes()),
         variation: formatVar(variation)
@@ -110,17 +113,17 @@ function showBearingDialogue(message, previous) {
     if (message) d.push({ type: "text", value: message });
     d.push(
         { type: "field", label: "Object name", value: p.name, width: 160 },
-        { type: "field", label: "Latitude", value: p.lat, width: 120 },
-        { type: "field", label: "Longitude", value: p.lon, width: 120 },
         { type: "field", label: "Bearing", value: p.bearing, width: 60, suffix: "°M" },
         { type: "field", label: "Time", value: p.time, width: 60, suffix: "hhmm" },
         { type: "field", label: "Variation", value: p.variation, width: 60,
-            suffix: variationSource === "WMM" ? "(WMM)" : "e.g. 1.5W" }
+            suffix: variationSource === "WMM" ? "(WMM)" : "e.g. 1.5W" },
+        { type: "text", value: "Position " + (pending.typed ? "(typed)" : "(from chart)") + "\n" +
+            CBF.formatLat(pending.pos.lat) + "  " + CBF.formatLon(pending.pos.lon) }
     );
     if (bearings.length > 0) {
         d.push({ type: "hLine" }, { type: "text", value: bearingList() });
     }
-    var buttons = ["Cancel", "*" + BTN_MORE];
+    var buttons = ["Cancel", BTN_POSITION, "*" + BTN_MORE];
     if (bearings.length >= 1) buttons.push(BTN_LAST);
     d.push({ type: "button", label: buttons });
     onDialogue(onBearingDialogue, d);
@@ -128,13 +131,10 @@ function showBearingDialogue(message, previous) {
 
 function onBearingDialogue(d, button) {
     if (button === "Cancel") { pending = null; return; }
-    var e = { name: fieldValue(d, "Object name"), lat: fieldValue(d, "Latitude"), lon: fieldValue(d, "Longitude"),
-        bearing: fieldValue(d, "Bearing"), time: fieldValue(d, "Time"), variation: fieldValue(d, "Variation") };
+    var e = { name: fieldValue(d, "Object name"), bearing: fieldValue(d, "Bearing"),
+        time: fieldValue(d, "Time"), variation: fieldValue(d, "Variation") };
+    if (button === BTN_POSITION) { showPositionDialogue("", e); return; }
 
-    var lat = CBF.parseLatLon(e.lat, false), lon = CBF.parseLatLon(e.lon, true);
-    if (lat === null || lon === null) {
-        showBearingDialogue("Cannot read the position.\nUse e.g. 50 47.13N  001 20.40W", e); return;
-    }
     var brg = parseBearing(e.bearing);
     if (brg === null) { showBearingDialogue("Bearing must be a number\nfrom 0 to 360.", e); return; }
     var minutes = parseTime(e.time);
@@ -145,7 +145,7 @@ function onBearingDialogue(d, button) {
     if (variation === null || Math.abs(v - variation) > 1e-9) variationSource = "entered";
     variation = v;
 
-    var b = { name: e.name || ("Object " + (bearings.length + 1)), object: { lat: lat, lon: lon },
+    var b = { name: e.name || ("Object " + (bearings.length + 1)), object: pending.pos,
         bearing: brg, minutes: minutes };
     b.routeGUID = drawLine(b, b.object, CBF.compassToTrue(brg, variation), PROVISIONAL_LINE_NM, false);
     bearings.push(b);
@@ -153,6 +153,37 @@ function onBearingDialogue(d, button) {
     print("Bearing ", bearings.length, ": ", b.name, " ", pad3(brg), "°M at ", formatTime(minutes), "\n");
 
     if (button === BTN_LAST) plotFix();
+}
+
+// Typing a position, e.g. from a list of lights. The bearing dialogue's
+// entries are carried through and restored afterwards.
+function showPositionDialogue(message, entries, typed) {
+    var d = [
+        { type: "caption", value: "Object position" },
+        { type: "text", value: "Only change this to type a position,\ne.g. from a list of lights." }
+    ];
+    if (message) d.push({ type: "text", value: message });
+    d.push(
+        { type: "field", label: "Latitude", value: typed ? typed.lat : CBF.formatLat(pending.pos.lat), width: 130 },
+        { type: "field", label: "Longitude", value: typed ? typed.lon : CBF.formatLon(pending.pos.lon), width: 130 },
+        { type: "button", label: ["Cancel", "*OK"] }
+    );
+    onDialogue(function (rd, button) {
+        if (button === "OK") {
+            var t = { lat: fieldValue(rd, "Latitude"), lon: fieldValue(rd, "Longitude") };
+            var lat = CBF.parseLatLon(t.lat, false), lon = CBF.parseLatLon(t.lon, true);
+            if (lat === null || lon === null) {
+                showPositionDialogue("Cannot read that.\nUse e.g. 50 47.13N  001 20.40W", entries, t);
+                return;
+            }
+            // Keep the exact chart position unless the user actually changed it.
+            if (t.lat !== CBF.formatLat(pending.pos.lat) || t.lon !== CBF.formatLon(pending.pos.lon)) {
+                pending.pos = { lat: lat, lon: lon };
+                pending.typed = true;
+            }
+        }
+        showBearingDialogue("", entries);
+    }, d);
 }
 
 // --- plotting the fix ----------------------------------------------------------------------

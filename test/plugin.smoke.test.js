@@ -82,11 +82,10 @@ test("three bearings to a fix mark in the cocked hat", function () {
     objects.forEach(function (o, i) {
         host.menus[BEARING_HERE]({ latitude: o.lat, longitude: o.lon });
         assert.equal(field(host, "Variation"), "1.5W", "variation prefilled from WMM");
-        assert.equal(CBF.parseLatLon(field(host, "Latitude")).toFixed(4), o.lat.toFixed(4));
         var buttons = lastDialogue(host).d.filter(function (e) { return e.type === "button"; })[0].label;
-        assert.equal(buttons.length, i === 0 ? 2 : 3, "plot button only from the second bearing");
+        assert.equal(buttons.length, i === 0 ? 3 : 4, "plot button only from the second bearing");
         answer(host, { "Object name": o.name, "Bearing": magBearing(o), "Time": "1432" },
-            i < 2 ? "Add, more to come" : "Add, last one: plot fix");
+            i < 2 ? "Add more" : "Plot fix");
     });
     assert.equal(host.lastRequest.name, "WMM_VARIATION_REQUEST");
     assert.equal(host.lastRequest.body.Lat, objects[0].lat);
@@ -110,20 +109,42 @@ test("bearing to an existing waypoint uses its name and position", function () {
     var host = makeHost(true);
     host.menus["CBF: bearing to this waypoint"]({ latitude: 50.66, longitude: -1.59, GUID: "WP1", objecttype: "Waypoint" });
     assert.equal(field(host, "Object name"), "Needles Lt");
-    assert.equal(field(host, "Latitude"), CBF.formatLat(50.6623));
+    assert.match(textOf(host), new RegExp(CBF.formatLat(50.6623)));
 });
 
-test("typed position overrides the clicked one", function () {
+test("clicked position is used exactly; Position... types one", function () {
     var host = makeHost(true);
-    host.menus[BEARING_HERE]({ latitude: 50.0, longitude: -1.0 });
-    answer(host, { "Latitude": "50 47.70N", "Longitude": "001 20.40W", "Bearing": "45" }, "Add, more to come");
-    var route = host.routes[Object.keys(host.routes)[0]];
-    assert.ok(Math.abs(route.waypoints[0].position.latitude - (50 + 47.7 / 60)) < 1e-9);
-    assert.ok(Math.abs(route.waypoints[0].position.longitude + (1 + 20.4 / 60)) < 1e-9);
+    var click = { latitude: 50.7912345678, longitude: -1.3456789012 };
+    host.menus[BEARING_HERE](click);
+    var labels = lastDialogue(host).d.filter(function (e) { return e.type === "field"; })
+        .map(function (e) { return e.label; });
+    assert.deepEqual(Array.from(labels), ["Object name", "Bearing", "Time", "Variation"], "bearing directly under name, no lat/lon fields");
+    assert.match(textOf(host), /Position \(from chart\)/);
+    answer(host, { "Bearing": "45" }, "Add more");
+    var first = host.routes[Object.keys(host.routes)[0]].waypoints[0].position;
+    assert.equal(first.latitude, click.latitude, "not rounded through display text");
+    assert.equal(first.longitude, click.longitude);
 
-    host.menus[BEARING_HERE]({ latitude: 50.0, longitude: -1.0 });
-    answer(host, { "Latitude": "rubbish", "Bearing": "45" }, "Add, more to come");
-    assert.match(textOf(host), /Cannot read the position/);
+    // Position... then OK without changes keeps the exact position.
+    host.menus[BEARING_HERE](click);
+    answer(host, { "Object name": "Spire", "Bearing": "100" }, "Position...");
+    assert.equal(lastDialogue(host).d[0].value, "Object position");
+    answer(host, {}, "OK");
+    assert.equal(field(host, "Object name"), "Spire", "entries kept");
+    assert.equal(field(host, "Bearing"), "100");
+    assert.match(textOf(host), /from chart/);
+
+    // Typing a position: bad input re-asks, good input replaces it.
+    answer(host, {}, "Position...");
+    answer(host, { "Latitude": "rubbish" }, "OK");
+    assert.match(textOf(host), /Cannot read that/);
+    answer(host, { "Latitude": "50 47.70N", "Longitude": "001 20.40W" }, "OK");
+    assert.match(textOf(host), /Position \(typed\)/);
+    answer(host, {}, "Add more");
+    var keys = Object.keys(host.routes);
+    var second = host.routes[keys[keys.length - 1]].waypoints[0].position;
+    assert.ok(Math.abs(second.latitude - (50 + 47.7 / 60)) < 1e-12);
+    assert.ok(Math.abs(second.longitude + (1 + 20.4 / 60)) < 1e-12);
 });
 
 test("running fix: same object, 30 minutes apart, with tide", function () {
@@ -135,10 +156,10 @@ test("running fix: same object, 30 minutes apart, with tide", function () {
     function mag(from) { return CBF.trueToCompass(CBF.bearingTo(from, obj), -1.5).toFixed(1); }
 
     host.menus[BEARING_HERE]({ latitude: obj.lat, longitude: obj.lon });
-    answer(host, { "Object name": "Tower", "Bearing": mag(start), "Time": "1000" }, "Add, more to come");
+    answer(host, { "Object name": "Tower", "Bearing": mag(start), "Time": "1000" }, "Add more");
     host.menus[BEARING_HERE]({ latitude: obj.lat, longitude: obj.lon });
     assert.equal(field(host, "Time"), "1000", "time defaults to the previous bearing");
-    answer(host, { "Object name": "Tower", "Bearing": mag(end), "Time": "1030" }, "Add, last one: plot fix");
+    answer(host, { "Object name": "Tower", "Bearing": mag(end), "Time": "1030" }, "Plot fix");
 
     assert.equal(lastDialogue(host).d[0].value, "Running fix");
     assert.equal(host.waypoints.length, 0, "no fix until the run is entered");
@@ -157,9 +178,9 @@ test("running fix: same object, 30 minutes apart, with tide", function () {
 test("running fix dialogue validates input", function () {
     var host = makeHost(true);
     host.menus[BEARING_HERE]({ latitude: 50.80, longitude: -1.30 });
-    answer(host, { "Bearing": "10", "Time": "2350" }, "Add, more to come");
+    answer(host, { "Bearing": "10", "Time": "2350" }, "Add more");
     host.menus[BEARING_HERE]({ latitude: 50.80, longitude: -1.25 });
-    answer(host, { "Bearing": "80", "Time": "0010" }, "Add, last one: plot fix");
+    answer(host, { "Bearing": "80", "Time": "0010" }, "Plot fix");
     assert.match(textOf(host), /2350 to 0010/, "spans midnight");
     answer(host, { "Course steered": "x", "Speed through water": "5" }, "Plot running fix");
     assert.match(textOf(host), /Course must be/);
@@ -173,11 +194,11 @@ test("bad bearing re-asks, no WMM falls back to manual variation", function () {
     assert.equal(host.dialogues.length, 0, "waits for WMM");
     host.timers[0]();
     assert.match(textOf(host), /No reply from WMM plugin/);
-    answer(host, { "Bearing": "abc", "Variation": "2W" }, "Add, more to come");
+    answer(host, { "Bearing": "abc", "Variation": "2W" }, "Add more");
     assert.match(textOf(host), /Bearing must be a number/);
-    answer(host, { "Bearing": "045", "Time": "25:00" }, "Add, more to come");
+    answer(host, { "Bearing": "045", "Time": "25:00" }, "Add more");
     assert.match(textOf(host), /Time must be hhmm/);
-    answer(host, { "Time": "0900" }, "Add, more to come");
+    answer(host, { "Time": "0900" }, "Add more");
     assert.equal(Object.keys(host.routes).length, 1);
 
     host.menus["CBF: plot fix"]();
