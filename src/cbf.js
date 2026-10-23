@@ -150,6 +150,9 @@ function CBFLibrary() {
     //     object:  {lat, lon},          charted position of the object
     //     bearing: number,              observed bearing TO the object
     //     name:    string (optional)
+    //     run:     {courseTrue, distanceNm, setTrue, driftNm} (optional)
+    //              Running fix: the boat's run (and tide) since this bearing
+    //              was taken. The line is advanced by moving the object.
     // }
     // options: {
     //     variation: number|string,    east positive, or "2.5W" etc. Default 0.
@@ -171,16 +174,24 @@ function CBFLibrary() {
         options = options || {};
         if (!observations || observations.length < 2) throw new Error("Need at least two bearings for a fix");
 
-        var proj = makeProjection(meanPosition(observations.map(function (o) { return o.object; })));
+        // A line's anchor is its object, moved by the run for a running fix.
+        var anchors = observations.map(function (o) {
+            var r = o.run;
+            return r ? advance(o.object, r.courseTrue, r.distanceNm, r.setTrue, r.driftNm) : o.object;
+        });
+        var proj = makeProjection(meanPosition(anchors));
         var warnings = [];
 
         var lines = observations.map(function (o, i) {
             var tb = options.trueBearings ? norm360(o.bearing)
                 : compassToTrue(o.bearing, options.variation, o.deviation !== undefined ? o.deviation : options.deviation);
-            return positionLine(proj, {
-                object: o.object, name: o.name || ("Object " + (i + 1)),
+            var l = positionLine(proj, {
+                object: anchors[i], name: o.name || ("Object " + (i + 1)),
                 bearing: o.bearing, trueBearing: tb
             });
+            l.originalObject = o.object;
+            l.advanced = !!o.run;
+            return l;
         });
 
         var crossings = [];
@@ -227,11 +238,13 @@ function CBFLibrary() {
         return {
             fix: proj.toLL(fixXY),
             lines: lines.map(function (l) {
-                // range: distance from fix to object measured along the line
+                // range: distance from fix to anchor measured along the line
                 var range = (l.p.x - fixXY.x) * l.u.x + (l.p.y - fixXY.y) * l.u.y;
                 return {
                     name: l.obs.name,
-                    object: l.obs.object,
+                    object: l.originalObject,
+                    anchor: l.obs.object,      // where the line starts: the object, or advanced point
+                    advanced: l.advanced,
                     observedBearing: l.obs.bearing,
                     trueBearing: l.obs.trueBearing,
                     reciprocal: norm360(l.obs.trueBearing + 180),
@@ -246,13 +259,15 @@ function CBFLibrary() {
         };
     }
 
-    // End points for drawing a position line: from the object, along the
-    // reciprocal, to a little beyond the fix.
+    // End points for drawing a position line: from its anchor (the object, or
+    // the advanced point for a running fix), along the reciprocal, to a little
+    // beyond the fix.
     function positionLineEnds(line, fix, overrunNm) {
-        var proj = makeProjection(line.object);
+        var start = line.anchor || line.object;
+        var proj = makeProjection(start);
         var u = dirVec(line.trueBearing);
         var len = Math.max(line.rangeNm, 0) + (overrunNm === undefined ? 0.5 : overrunNm);
-        return [line.object, proj.toLL({ x: -len * u.x, y: -len * u.y })];
+        return [start, proj.toLL({ x: -len * u.x, y: -len * u.y })];
     }
 
     // --- running fix support ------------------------------------------------------
@@ -291,6 +306,26 @@ function CBFLibrary() {
         return s;
     }
 
+    // Read a typed latitude or longitude. Accepts decimal degrees ("50.7855",
+    // "-1.34"), degrees and minutes ("50 47.13N", "50°47.130'N", "N50 47.13"),
+    // or degrees, minutes and seconds ("001 20 24W"). Returns decimal degrees,
+    // north/east positive, or null if it cannot be read or is out of range.
+    function parseLatLon(text, isLon) {
+        var s = String(text).trim().toUpperCase();
+        var hemi = s.match(/[NSEW]/g);
+        if (hemi && hemi.length > 1) return null;
+        if (hemi && (isLon ? /[NS]/ : /[EW]/).test(hemi[0])) return null;
+        var neg = /^-/.test(s) || (hemi && /[SW]/.test(hemi[0]));
+        var nums = s.replace(/^-/, "").match(/\d+(?:\.\d+)?/g);
+        if (!nums || nums.length > 3) return null;
+        if (s.replace(/^-/, "").replace(/[\d.\s°'"′″NSEW]/g, "") !== "") return null;
+        var v = parseFloat(nums[0]);
+        if (nums.length > 1) { var m = parseFloat(nums[1]); if (m >= 60) return null; v += m / 60; }
+        if (nums.length > 2) { var sec = parseFloat(nums[2]); if (sec >= 60) return null; v += sec / 3600; }
+        if (v > (isLon ? 180 : 90)) return null;
+        return neg ? -v : v;
+    }
+
     // 50.123456 -> "50°07.407'N"
     function formatLat(lat) { return formatDDM(lat, 2, "N", "S"); }
     function formatLon(lon) { return formatDDM(lon, 3, "E", "W"); }
@@ -317,6 +352,7 @@ function CBFLibrary() {
         advance: advance,
         bearingTo: bearingTo,
         distanceNm: distanceNm,
+        parseLatLon: parseLatLon,
         formatLat: formatLat,
         formatLon: formatLon
     };

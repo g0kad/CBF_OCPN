@@ -141,3 +141,53 @@ test("formatting degrees and decimal minutes", function () {
     assert.equal(CBF.formatLat(-0.1), "00°06.000'S");
     assert.equal(CBF.formatLat(49.99999999), "50°00.000'N");
 });
+
+test("running fix: one object, two bearings, line advanced by run and tide", function () {
+    // Boat runs 090T at 5 kn for 30 min (2.5 nm) with tide 180T at 1 kn (0.5 nm).
+    var obj = { lat: 50.8000, lon: -1.3000 };
+    var start = { lat: 50.7700, lon: -1.3600 };
+    var end = CBF.advance(start, 90, 2.5, 180, 0.5);
+    var r = CBF.computeFix([
+        { name: "Tower 1000", object: obj, bearing: CBF.bearingTo(start, obj),
+            run: { courseTrue: 90, distanceNm: 2.5, setTrue: 180, driftNm: 0.5 } },
+        { name: "Tower 1030", object: obj, bearing: CBF.bearingTo(end, obj) }
+    ], { trueBearings: true });
+    assert.ok(CBF.distanceNm(r.fix, end) * M_PER_NM < 20, "running fix at the later position");
+    assert.equal(r.lines[0].advanced, true);
+    assert.deepEqual(r.lines[0].object, obj, "original object kept");
+    assert.ok(Math.abs(CBF.distanceNm(r.lines[0].anchor, obj) - Math.sqrt(2.5 * 2.5 + 0.25)) < 0.01);
+    assert.equal(r.lines[1].advanced, false);
+    var ends = CBF.positionLineEnds(r.lines[0], r.fix, 0.5);
+    assert.deepEqual(ends[0], r.lines[0].anchor, "advanced line drawn from the advanced point");
+});
+
+test("running fix ignoring the tide puts the fix in the wrong place", function () {
+    var obj = { lat: 50.8000, lon: -1.3000 };
+    var start = { lat: 50.7700, lon: -1.3600 };
+    var end = CBF.advance(start, 90, 2.5, 180, 0.5);
+    var r = CBF.computeFix([
+        { object: obj, bearing: CBF.bearingTo(start, obj), run: { courseTrue: 90, distanceNm: 2.5 } },
+        { object: obj, bearing: CBF.bearingTo(end, obj) }
+    ], { trueBearings: true });
+    assert.ok(CBF.distanceNm(r.fix, end) > 0.2);
+});
+
+test("parse typed latitude and longitude", function () {
+    function near(a, b) { return Math.abs(a - b) < 1e-9; }
+    assert.ok(near(CBF.parseLatLon("50.7855"), 50.7855));
+    assert.ok(near(CBF.parseLatLon("-1.34", true), -1.34));
+    assert.ok(near(CBF.parseLatLon("50 47.13N"), 50 + 47.13 / 60));
+    assert.ok(near(CBF.parseLatLon("50°47.130'N"), 50 + 47.13 / 60));
+    assert.ok(near(CBF.parseLatLon("N50 47.13"), 50 + 47.13 / 60));
+    assert.ok(near(CBF.parseLatLon("001°20.400'W", true), -(1 + 20.4 / 60)));
+    assert.ok(near(CBF.parseLatLon("001 20 24W", true), -(1 + 20 / 60 + 24 / 3600)));
+    assert.ok(near(CBF.parseLatLon(" 1 20.4 e ", true), 1 + 20.4 / 60));
+    assert.equal(CBF.parseLatLon("50 47N", true), null, "N on a longitude");
+    assert.equal(CBF.parseLatLon("1 20W"), null, "W on a latitude");
+    assert.equal(CBF.parseLatLon("91"), null);
+    assert.equal(CBF.parseLatLon("50 61N"), null);
+    assert.equal(CBF.parseLatLon("fifty"), null);
+    assert.equal(CBF.parseLatLon(""), null);
+    // Round trip through the display format.
+    assert.ok(Math.abs(CBF.parseLatLon(CBF.formatLon(-1.2345), true) + 1.2345) < 1e-5);
+});
