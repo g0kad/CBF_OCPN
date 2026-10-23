@@ -60,7 +60,7 @@ function onAddObject(where) {
         if (answered) return;
         answered = true;
         OCPNonMessageName();   // cancel the WMM callback
-        showBearingDialogue("No reply from the WMM plugin - please enter variation.");
+        showBearingDialogue("No reply from WMM plugin:\nplease enter variation.");
     }, 2);
 }
 
@@ -68,14 +68,15 @@ function showBearingDialogue(message, previous) {
     var n = bearings.length + 1;
     var d = [
         { type: "caption", value: "Cross bearing fix - bearing " + n },
-        { type: "text", value: "Object at " + formatPos(pendingObject) }
+        { type: "text", value: "Object at " + CBF.formatLat(pendingObject.lat) + "\n" +
+            "               " + CBF.formatLon(pendingObject.lon) }
     ];
     if (message) d.push({ type: "text", value: message });
     d.push(
         { type: "field", label: "Object name", value: previous ? previous.name : "Object " + n, width: 160 },
         { type: "field", label: "Bearing", value: previous ? previous.bearing : "", width: 60, suffix: "°M" },
         { type: "field", label: "Variation", value: previous ? previous.variation : formatVar(variation), width: 60,
-            suffix: variationSource === "WMM" ? "(WMM) e.g. 1.5W" : "e.g. 1.5W" }
+            suffix: variationSource === "WMM" ? "(WMM)" : "e.g. 1.5W" }
     );
     if (bearings.length > 0) {
         d.push({ type: "hLine" }, { type: "text", value: bearingList() });
@@ -92,10 +93,10 @@ function onBearingDialogue(d, button) {
         variation: fieldValue(d, "Variation") };
 
     var brg = parseBearing(entered.bearing);
-    if (brg === null) { showBearingDialogue("Bearing must be a number from 0 to 360.", entered); return; }
+    if (brg === null) { showBearingDialogue("Bearing must be a number\nfrom 0 to 360.", entered); return; }
     var v;
     try { v = CBF.parseVarDev(entered.variation); }
-    catch (e) { showBearingDialogue("Cannot read variation '" + entered.variation + "'. Use e.g. 1.5W or 0.", entered); return; }
+    catch (e) { showBearingDialogue("Cannot read variation '" + entered.variation + "'.\nUse e.g. 1.5W, 2E or 0.", entered); return; }
     if (variation === null || Math.abs(v - variation) > 1e-9) variationSource = "entered";
     variation = v;
 
@@ -223,8 +224,9 @@ function routePoint(p) {
 
 // --- small helpers ------------------------------------------------------------------
 
+// The plugin returns field labels with a trailing space added, so compare trimmed.
 function fieldValue(d, label) {
-    for (var i = 0; i < d.length; i++) if (d[i].type === "field" && d[i].label === label) return String(d[i].value).trim();
+    for (var i = 0; i < d.length; i++) if (d[i].type === "field" && String(d[i].label).trim() === label) return String(d[i].value).trim();
     return "";
 }
 

@@ -35,13 +35,18 @@ function makeHost(wmmReplies) {
 
 function lastDialogue(host) { return host.dialogues[host.dialogues.length - 1]; }
 
-// Fill named fields of the latest dialogue and press a button.
+// Fill named fields of the latest dialogue and press a button. Like the real
+// plugin, the returned copy has a space appended to each field label.
 function answer(host, values, button) {
     var dlg = lastDialogue(host);
-    dlg.d.forEach(function (e) {
-        if (e.type === "field" && values[e.label] !== undefined) e.value = values[e.label];
+    var returned = JSON.parse(JSON.stringify(dlg.d));
+    returned.forEach(function (e) {
+        if (e.type !== "field") return;
+        if (values[e.label] !== undefined) e.value = values[e.label];
+        if (e.value === undefined) e.value = "";
+        e.label += " ";
     });
-    dlg.handler(dlg.d, button);
+    dlg.handler(returned, button);
 }
 
 var boat = { lat: 50.7700, lon: -1.3000 };
@@ -87,7 +92,7 @@ test("bad bearing re-asks, no WMM falls back to manual variation", function () {
     host.menus["CBF: bearing to object here"]({ latitude: 50.79, longitude: -1.34 });
     assert.equal(host.dialogues.length, 0, "waits for WMM");
     host.timers[0]();
-    assert.match(lastDialogue(host).d[2].value, /No reply from the WMM plugin/);
+    assert.match(lastDialogue(host).d[2].value, /No reply from WMM plugin/);
     answer(host, { "Bearing": "abc", "Variation": "2W" }, "Add");
     assert.match(lastDialogue(host).d[2].value, /Bearing must be a number/);
     answer(host, { "Bearing": "045" }, "Add");
